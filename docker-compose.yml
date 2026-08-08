@@ -1,0 +1,205 @@
+﻿services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: dociq
+      POSTGRES_USER: dociq
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dociq"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build: ./backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: dociq
+      POSTGRES_USER: dociq
+      POSTGRES_PASSWORD: changeme
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      EMBEDDING_MODEL: BAAI/bge-large-en-v1.5
+      EMBEDDING_BATCH_SIZE: "32"
+      EMBEDDING_DEVICE: cuda
+      RERANKER_MODEL: cross-encoder/ms-marco-MiniLM-L-6-v2
+      RERANKER_DEVICE: cuda
+      LLM_BACKEND: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_MODEL: llama3.2:3b
+      LLM_TEMPERATURE: "0.1"
+      LLM_MAX_TOKENS: "1024"
+      DENSE_TOP_N: "20"
+      SPARSE_TOP_N: "20"
+      RERANK_TOP_K: "5"
+      RRF_K: "60"
+      HYDE_ENABLED: "true"
+      CONFIDENCE_REFUSAL_THRESHOLD: "0.25"
+      CONFIDENCE_LOW_THRESHOLD: "0.45"
+      MAX_FILE_SIZE_MB: "100"
+      MAX_FILES_PER_UPLOAD: "50"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_BUCKET: dociq-uploads
+      MINIO_USE_SSL: "false"
+      SECRET_KEY: changeme-generate-random-32-chars
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+      REFRESH_TOKEN_EXPIRE_DAYS: "7"
+      LOGIN_MODE: password
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: "587"
+      SMTP_USER: "aniketvparate@gmail.com"
+      SMTP_PASSWORD: "apng xtkt kaix gevq"
+      EMAIL_FROM: "aniketvparate@gmail.com"
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+      GITHUB_CLIENT_ID: ""
+      GITHUB_CLIENT_SECRET: ""
+      SSO_REDIRECT_BASE: http://localhost
+      CORS_ORIGINS: "http://localhost,http://localhost:3000"
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+    volumes:
+      - ./backend:/app
+      - model_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  worker:
+    image: rag-project-backend
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    depends_on:
+      - backend
+      - redis
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: dociq
+      POSTGRES_USER: dociq
+      POSTGRES_PASSWORD: changeme
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      LLM_BACKEND: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_MODEL: llama3.2:3b
+      EMBEDDING_MODEL: BAAI/bge-large-en-v1.5
+      EMBEDDING_DEVICE: cuda
+      RERANKER_MODEL: cross-encoder/ms-marco-MiniLM-L-6-v2
+      RERANKER_DEVICE: cuda
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_BUCKET: dociq-uploads
+      MINIO_USE_SSL: "false"
+      SECRET_KEY: changeme-generate-random-32-chars
+      MAX_FILE_SIZE_MB: "100"
+      ALLOWED_EXTENSIONS: "pdf,docx,doc,txt,md,xlsx,pptx,html,epub"
+      LOG_LEVEL: INFO
+      DEBUG: "false"
+    volumes:
+      - ./backend:/app
+      - model_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  ollama_models:
+  model_cache:

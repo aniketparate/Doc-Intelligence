@@ -1,0 +1,12 @@
+﻿[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ultra-doc-intelligence-backend"
+version = "0.1.0"
+description = "Ultra Doc-Intelligence backend"
+requires-python = ">=3.12"
+
+[tool.alembic]
+config_file_name = "alembic.ini"
