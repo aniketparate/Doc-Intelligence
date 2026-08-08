@@ -1070,12 +1070,8 @@ If you use Ultra Doc-Intelligence in research or production, please cite:
 ```bibtex
 @software{ultra_doc_intelligence_2025,
   title={Ultra Doc-Intelligence: Production-Grade RAG for TMS Documents},
-  author={Your Organization},
+  author={Aniket Parate},
   year={2025},
-  url={https://github.com/yourusername/rag-project}
+  url={https://github.com/aniketparate/Doc-Intelligence}
 }
 ```
-
----
-
-**Built with ❤️ for the logistics industry. Powered by open-source AI.**
